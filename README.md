@@ -1,7 +1,7 @@
 # Go Short Address implementation
 
 [![IPFN project](https://img.shields.io/badge/project-IPFN-blue.svg?style=flat-square)](http://github.com/ipfn)
-[![GoDoc](https://godoc.org/github.com/ipfn/go-ipfn-cmd-util?status.svg)](https://godoc.org/github.com/ipfn/go-ipfn-cmd-util)
+[![GoDoc](https://godoc.org/github.com/rootchain/go-short-address?status.svg)](https://godoc.org/github.com/rootchain/go-short-address)
 
 Implementation of 80 bit address in Go programming language.
 
