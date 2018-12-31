@@ -12,7 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package address
+// Package shortaddress implements short IPFN Short Address.
+//
+// TODO(crackcomm): spec
+//
+// Implementation of 80 bit address in Go programming language.
+//
+// It consists of `uint64` identifier and `uint16` checksum and.
+// Encoded with extra, one byte checksum for address validity check.
+//
+// Example address: `beqpdfdhq87dkncb` for `{id = 2191370559816, crc = 13471}`.
+package shortaddress
 
 import (
 	"errors"
@@ -20,23 +30,29 @@ import (
 	"hash/crc32"
 	"math"
 
-	cid "gx/ipfs/QmapdYm1b22Frv3k17fqrBYTFRxwiaVJkB299Mfn33edeB/go-cid"
+	cid "gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
 
+	"github.com/cespare/xxhash"
 	"github.com/gogo/protobuf/proto"
-	base32check "github.com/ipfn/go-base32check"
-	"github.com/ipfn/go-ipfn-cells"
+
+	"github.com/ipfn/go-base32i/base32i"
 )
 
 // Address - Short address with extra checksum.
 type Address struct {
-	// ID - Cell id.
-	ID cells.ID `json:"id,omitempty"`
+	// ID - Cell ID.
+	ID uint64 `json:"id,omitempty"`
 
 	// CID - Content ID.
-	CID *cells.CID `json:"cid,omitempty"`
+	CID cid.Cid `json:"cid,omitempty"`
 
 	// Extra - Extra checksum.
 	Extra uint16 `json:"extra,omitempty"`
+}
+
+// ShortChecksum - Calculates checksum for ID and CID.
+func ShortChecksum(id uint64, bytes []byte) uint16 {
+	return uint16(math.Ceil(math.Sqrt(float64(uint64(id) % uint64(crc32.ChecksumIEEE(bytes))))))
 }
 
 // ParseAddress - Parses short address from string.
@@ -72,14 +88,14 @@ func ToBytes(src string) (body []byte, err error) {
 }
 
 // FromCID - Creates address from content identifier.
-func FromCID(c *cells.CID) (addr *Address) {
+func FromCID(c cid.Cid) (addr *Address) {
 	addr = new(Address)
 	addr.SetCID(c)
 	return
 }
 
 // CidToShort - Creates short address from content identifier.
-func CidToShort(c *cells.CID) (addr *Address) {
+func CidToShort(c cid.Cid) (addr *Address) {
 	addr = new(Address)
 	addr.SetBytes(c.Bytes())
 	return
@@ -87,7 +103,7 @@ func CidToShort(c *cells.CID) (addr *Address) {
 
 // IsShortAddress - Returns true if there is no cid available, only short address.
 func (addr *Address) IsShortAddress() bool {
-	return addr.CID == nil
+	return !addr.CID.Defined()
 }
 
 // String - Returns short address in string format.
@@ -96,23 +112,22 @@ func (addr *Address) String() string {
 	if err != nil {
 		panic(err)
 	}
-	body = base32check.CheckEncode(body)
-	return string(append([]byte{'b'}, body...))
+	return base32i.CheckEncodePrefixed(body)
 }
 
 // SetCID - Sets address from cid.
-func (addr *Address) SetCID(c *cells.CID) {
+func (addr *Address) SetCID(c cid.Cid) {
 	bytes := c.Bytes()
-	addr.ID = cells.NewID(bytes)
-	addr.Extra = uint16(math.Ceil(math.Sqrt(float64(uint64(addr.ID) % uint64(crc32.ChecksumIEEE(bytes))))))
+	addr.ID = xxhash.Sum64(bytes)
+	addr.Extra = ShortChecksum(addr.ID, bytes)
 	addr.CID = c
 	return
 }
 
 // SetBytes - Sets address from bytes.
 func (addr *Address) SetBytes(bytes []byte) {
-	addr.ID = cells.NewID(bytes)
-	addr.Extra = uint16(math.Ceil(math.Sqrt(float64(uint64(addr.ID) % uint64(crc32.ChecksumIEEE(bytes))))))
+	addr.ID = xxhash.Sum64(bytes)
+	addr.Extra = ShortChecksum(addr.ID, bytes)
 }
 
 // Marshal - Marshals address as byte array.
@@ -134,12 +149,12 @@ func (addr *Address) Unmarshal(body []byte) (err error) {
 	if err != nil {
 		return err
 	}
-	addr.ID = cells.ID(id)
+	addr.ID = id
 	checksum, err := buff.DecodeVarint()
 	if err != nil {
 		return err
 	}
-	if checksum > math.MaxUint32 {
+	if checksum > math.MaxUint16 {
 		return errors.New("checksum too big")
 	}
 	addr.Extra = uint16(checksum)
@@ -148,7 +163,7 @@ func (addr *Address) Unmarshal(body []byte) (err error) {
 
 // MarshalJSON - Marshals address as JSON.
 func (addr *Address) MarshalJSON() ([]byte, error) {
-	if addr.CID != nil {
+	if addr.CID.Defined() {
 		return []byte(fmt.Sprintf("%q", addr.CID.String())), nil
 	}
 	return []byte(fmt.Sprintf("%q", addr.String())), nil
@@ -176,7 +191,7 @@ func (addr *Address) UnmarshalString(body string) (err error) {
 		if err != nil {
 			return err
 		}
-		addr.SetCID(cells.WrapCID(c))
+		addr.SetCID(c)
 		return nil
 	}
 	if body[0] != 'b' {
@@ -184,7 +199,7 @@ func (addr *Address) UnmarshalString(body string) (err error) {
 	}
 	// remove 'b' byte
 	body = body[1:]
-	decoded, err := base32check.CheckDecodeString(body)
+	decoded, err := base32i.CheckDecodeString(body)
 	if err != nil {
 		return
 	}
